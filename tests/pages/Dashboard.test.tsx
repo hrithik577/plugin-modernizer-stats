@@ -1,8 +1,13 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import Dashboard from '../../src/pages/Dashboard';
+
+vi.mock('../../src/lib/dataClient', () => ({
+  dataClient: {
+    getSummary: vi.fn(),
+  },
+}));
 
 vi.mock('echarts-for-react', () => ({
   default: (props: { option: Record<string, unknown> }) => (
@@ -10,7 +15,12 @@ vi.mock('echarts-for-react', () => ({
   ),
 }));
 
-const mockReport = {
+import { dataClient } from '../../src/lib/dataClient';
+import Dashboard from '../../src/pages/Dashboard';
+
+const mockClient = vi.mocked(dataClient);
+
+const mockSummary = {
   schemaVersion: '1.0.0',
   generatedAt: '2026-08-03T04:34:07Z',
   dataSource: 'https://github.com/jenkins-infra/metadata-plugin-modernizer',
@@ -42,23 +52,10 @@ const mockReport = {
     { tag: 'dependencies', count: 467 },
     { tag: 'migration', count: 298 },
   ],
-  recipes: {
-    'io.jenkins.tools.pluginmodernizer.SetupJenkinsfile': {
-      recipeId: 'io.jenkins.tools.pluginmodernizer.SetupJenkinsfile',
-      totalApplications: 624,
-      successCount: 102,
-      failureCount: 522,
-      plugins: [],
-    },
-    'io.jenkins.tools.pluginmodernizer.AddCodeOwner': {
-      recipeId: 'io.jenkins.tools.pluginmodernizer.AddCodeOwner',
-      totalApplications: 13,
-      successCount: 11,
-      failureCount: 1,
-      plugins: [],
-    },
-  },
-  plugins: {},
+  recipes: [
+    { recipeId: 'io.jenkins.tools.pluginmodernizer.SetupJenkinsfile', total: 624, success: 102, fail: 522 },
+    { recipeId: 'io.jenkins.tools.pluginmodernizer.AddCodeOwner', total: 13, success: 11, fail: 1 },
+  ],
 };
 
 function renderDashboard() {
@@ -70,22 +67,13 @@ function renderDashboard() {
 }
 
 beforeEach(() => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(mockReport) }))
-  );
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
+  mockClient.getSummary.mockResolvedValue({ ok: true, data: mockSummary });
 });
 
 describe('Dashboard', () => {
   it('shows skeleton while loading', () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() => new Promise(() => {}))
-    );
+    mockClient.getSummary.mockReturnValue(new Promise(() => {}));
 
     renderDashboard();
 
@@ -105,6 +93,48 @@ describe('Dashboard', () => {
     expect(screen.getByText('Successful Migrations')).toBeDefined();
     expect(screen.getByText('Failed Migrations')).toBeDefined();
     console.log('  Dashboard : all stat card labels rendered');
+  });
+
+  it('renders pull request stats in the footer summary', async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Pull requests/)).toBeDefined();
+    });
+    expect(screen.getByText(/Open/)).toBeDefined();
+    expect(screen.getByText(/Merged/)).toBeDefined();
+    expect(screen.getByText(/Closed/)).toBeDefined();
+
+    expect(screen.getByText('693')).toBeDefined();
+    expect(screen.getByText('78')).toBeDefined();
+    expect(screen.getByText('583')).toBeDefined();
+    expect(screen.getByText('32')).toBeDefined();
+    console.log('  Dashboard : footer shows 693 pull requests, 78 open, 583 merged, 32 closed');
+  });
+
+  it('omits the pull request stats when the report has no pullRequests block', async () => {
+    const { pullRequests, ...withoutPRs } = mockSummary;
+    void pullRequests;
+    mockClient.getSummary.mockResolvedValue({ ok: true, data: withoutPRs as typeof mockSummary });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByText('Total Plugins')).toBeDefined();
+    });
+    expect(screen.queryByText(/Pull requests/)).toBeNull();
+    console.log('  Dashboard : no pull request stats when the report omits pullRequests');
+  });
+
+  it('does not repeat plugin and migration totals in the footer summary', async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByText('Total Plugins')).toBeDefined();
+    });
+    expect(screen.queryByText(/^Plugins:/)).toBeNull();
+    expect(screen.queryByText(/^Migrations:/)).toBeNull();
+    console.log('  Dashboard : footer no longer duplicates the plugin and migration stat cards');
   });
 
   it('renders data freshness banner', async () => {
@@ -130,11 +160,18 @@ describe('Dashboard', () => {
     console.log(`  Dashboard : ${charts.length} ECharts components rendered`);
   });
 
+  it('loads its data through the shared data client', async () => {
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByText('Total Plugins')).toBeDefined();
+    });
+    expect(mockClient.getSummary).toHaveBeenCalledTimes(1);
+    console.log('  Dashboard : data loaded through dataClient.getSummary');
+  });
+
   it('shows error state on fetch failure', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() => Promise.resolve({ ok: false, status: 500, statusText: 'Internal Server Error' }))
-    );
+    mockClient.getSummary.mockResolvedValue({ ok: false, error: 'HTTP 500: Internal Server Error' });
 
     renderDashboard();
 
@@ -146,18 +183,15 @@ describe('Dashboard', () => {
     console.log('  Dashboard : error state displayed with Retry button');
   });
 
-  it('shows error state on network error', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() => Promise.reject(new Error('Failed to fetch')))
-    );
+  it('shows error state when the request times out', async () => {
+    mockClient.getSummary.mockResolvedValue({ ok: false, error: 'Request timed out after 10000ms' });
 
     renderDashboard();
 
     await waitFor(() => {
       expect(screen.getByText('Unable to fetch data')).toBeDefined();
     });
-    console.log('  Dashboard : network error message displayed');
+    console.log('  Dashboard : timeout from dataClient shows the error state');
   });
 
   it('renders top failing recipes section', async () => {
