@@ -1,10 +1,6 @@
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import TextField from '@mui/material/TextField';
-import InputAdornment from '@mui/material/InputAdornment';
-import IconButton from '@mui/material/IconButton';
-import SearchIcon from '@mui/icons-material/Search';
-import ClearIcon from '@mui/icons-material/Clear';
+import { useRef } from 'react';
+import { Box, IconButton, InputAdornment, TextField, Typography } from '@mui/material';
+import { Clear, Search } from '@mui/icons-material';
 import { alpha } from '@mui/material/styles';
 import type { PluginStatusColor } from '../../types';
 import { colors, statusColorMap, STATUS_CARD_DEFS } from '../../theme';
@@ -24,9 +20,17 @@ export default function PluginSearchBar({
   onClearFilter,
   resultCount,
 }: PluginSearchBarProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleClear = () => {
+    onSearchChange('');
+    inputRef.current?.focus();
+  };
+
   return (
     <Box sx={{ display: 'flex', gap: { xs: 1, sm: 2 }, flexWrap: 'wrap', alignItems: 'center' }}>
       <TextField
+        inputRef={inputRef}
         size="small"
         placeholder="Search a plugin…"
         value={search}
@@ -35,20 +39,20 @@ export default function PluginSearchBar({
           input: {
             startAdornment: (
               <InputAdornment position="start">
-                <SearchIcon sx={{ color: colors.text.muted, fontSize: 20 }} />
+                <Search sx={{ color: colors.text.muted, fontSize: 20 }} />
               </InputAdornment>
             ),
             endAdornment: search ? (
               <InputAdornment position="end">
                 <IconButton
                   size="small"
-                  onClick={() => onSearchChange('')}
+                  onClick={handleClear}
                   onMouseDown={(e) => e.preventDefault()}
                   aria-label="Clear search input"
                   edge="end"
                   sx={{ color: colors.text.muted, p: 0.5 }}
                 >
-                  <ClearIcon sx={{ fontSize: 16 }} />
+                  <Clear sx={{ fontSize: 16 }} />
                 </IconButton>
               </InputAdornment>
             ) : null,

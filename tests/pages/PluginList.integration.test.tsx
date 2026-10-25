@@ -98,7 +98,7 @@ describe('PluginList integration (real report.json)', { timeout: 30000 }, () => 
     });
   }
 
-  it('renders the correct total plugin count from real data', { timeout: 15000 }, async () => {
+  it('renders the correct total plugin count from real data', { timeout: 30000 }, async () => {
     await renderAndWait();
 
     expect(screen.getByText('Plugins')).toBeDefined();

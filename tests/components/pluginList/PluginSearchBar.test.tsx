@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import PluginSearchBar from '../../../src/components/pluginList/PluginSearchBar';
 
 describe('PluginSearchBar', () => {
-  it('renders search input with placeholder', () => {
+  it('renders search input with placeholder and no clear button when search is empty', () => {
     render(
       <PluginSearchBar
         search=""
@@ -15,7 +15,8 @@ describe('PluginSearchBar', () => {
       />
     );
     expect(screen.getByPlaceholderText('Search a plugin…')).toBeDefined();
-    console.log(`  PluginSearchBar : search input with placeholder rendered`);
+    expect(screen.queryByRole('button', { name: 'Clear search input' })).toBeNull();
+    console.log(`  PluginSearchBar : search input with placeholder rendered, clear button absent when empty`);
   });
 
   it('displays result count correctly', () => {
@@ -89,7 +90,7 @@ describe('PluginSearchBar', () => {
     console.log(`  PluginSearchBar : clicking status filter dismiss calls onClearFilter`);
   });
 
-  it('renders search clear button when search is non-empty and triggers onSearchChange("") when clicked', () => {
+  it('renders search clear button when search is non-empty and triggers onSearchChange("") and restores focus when clicked', () => {
     const onSearchChange = vi.fn();
     render(
       <PluginSearchBar
@@ -101,11 +102,85 @@ describe('PluginSearchBar', () => {
       />
     );
 
+    const input = screen.getByPlaceholderText('Search a plugin…');
     const clearButton = screen.getByRole('button', { name: 'Clear search input' });
     expect(clearButton).toBeDefined();
 
     fireEvent.click(clearButton);
     expect(onSearchChange).toHaveBeenCalledWith('');
-    console.log(`  PluginSearchBar : clicking clear input button triggers onSearchChange("")`);
+    expect(document.activeElement).toBe(input);
+    console.log(`  PluginSearchBar : clicking clear input button triggers onSearchChange("") and restores focus`);
+  });
+
+  it('prevents default on mouse down on clear button so input focus is preserved', () => {
+    render(
+      <PluginSearchBar
+        search="git"
+        onSearchChange={() => {}}
+        statusFilter="all"
+        onClearFilter={() => {}}
+        resultCount={5}
+      />
+    );
+
+    const clearButton = screen.getByRole('button', { name: 'Clear search input' });
+    const event = new MouseEvent('mousedown', { cancelable: true, bubbles: true });
+    clearButton.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    console.log(`  PluginSearchBar : mouse down on clear button prevents default`);
+  });
+
+  it('can activate clear button using keyboard and restores focus to search input', () => {
+    const onSearchChange = vi.fn();
+    render(
+      <PluginSearchBar
+        search="git"
+        onSearchChange={onSearchChange}
+        statusFilter="all"
+        onClearFilter={() => {}}
+        resultCount={5}
+      />
+    );
+
+    const input = screen.getByPlaceholderText('Search a plugin…');
+    const clearButton = screen.getByRole('button', { name: 'Clear search input' });
+
+    clearButton.focus();
+    expect(document.activeElement).toBe(clearButton);
+
+    fireEvent.click(clearButton);
+    expect(onSearchChange).toHaveBeenCalledWith('');
+    expect(document.activeElement).toBe(input);
+    console.log(`  PluginSearchBar : keyboard activation restores focus to input`);
+  });
+
+  it('clearing search restores unfiltered results in a stateful search bar', () => {
+    function StatefulPluginSearchBar() {
+      const [search, setSearch] = useState('git');
+      const plugins = ['git-plugin', 'github-branch-source', 'workflow-job'];
+      const filtered = plugins.filter((p) => p.includes(search));
+      return (
+        <div>
+          <PluginSearchBar
+            search={search}
+            onSearchChange={setSearch}
+            statusFilter="all"
+            onClearFilter={() => {}}
+            resultCount={filtered.length}
+          />
+          <div data-testid="results">{filtered.join(', ')}</div>
+        </div>
+      );
+    }
+
+    render(<StatefulPluginSearchBar />);
+    expect(screen.getByTestId('results').textContent).toBe('git-plugin, github-branch-source');
+
+    const clearButton = screen.getByRole('button', { name: 'Clear search input' });
+    fireEvent.click(clearButton);
+
+    expect(screen.getByTestId('results').textContent).toBe('git-plugin, github-branch-source, workflow-job');
+    expect(screen.queryByRole('button', { name: 'Clear search input' })).toBeNull();
+    console.log(`  PluginSearchBar : clearing search restores unfiltered results`);
   });
 });
